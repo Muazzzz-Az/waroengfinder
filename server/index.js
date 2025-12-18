@@ -15,7 +15,6 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// --- 1. FITUR LOGIN PINTAR (Membedakan User & Admin) ---
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -29,7 +28,6 @@ app.post("/login", async (req, res) => {
     if (!validPassword)
       return res.status(401).json({ error: "Password salah" });
 
-    // ATURAN: Jika emailnya 'admin@gmail.com', maka dia ADMIN.
     const role = email === "admin@gmail.com" ? "admin" : "user";
 
     res.json({
@@ -43,7 +41,6 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// --- 2. FITUR REGISTER ---
 app.post("/register", async (req, res) => {
   const { fullName, email, password } = req.body;
   try {
@@ -66,7 +63,6 @@ app.post("/register", async (req, res) => {
   }
 });
 
-// --- 3. FITUR USER: Kirim Rekomendasi Warung ---
 app.post("/request-warung", async (req, res) => {
   const { userId, name, address, imageUrl, description } = req.body;
   try {
@@ -81,7 +77,6 @@ app.post("/request-warung", async (req, res) => {
   }
 });
 
-// --- 4. FITUR ADMIN: Lihat Semua Request ---
 app.get("/admin/requests", async (req, res) => {
   try {
     const result = await pool.query(
@@ -93,11 +88,9 @@ app.get("/admin/requests", async (req, res) => {
   }
 });
 
-// --- 5. FITUR ADMIN: TERIMA (ACC) ---
 app.post("/admin/approve/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    // A. Ambil data dari tabel request
     const requestData = await pool.query(
       "SELECT * FROM warung_requests WHERE id = $1",
       [id]
@@ -107,7 +100,6 @@ app.post("/admin/approve/:id", async (req, res) => {
 
     const data = requestData.rows[0];
 
-    // B. Buat Slug Otomatis
     const slug =
       data.name
         .toLowerCase()
@@ -116,14 +108,12 @@ app.post("/admin/approve/:id", async (req, res) => {
       "-" +
       Date.now();
 
-    // C. Pindahkan ke tabel WARUNGS Utama
     await pool.query(
       `INSERT INTO warungs (name, slug, image_url, address, rating_avg) 
-       VALUES ($1, $2, $3, $4, 0.0)`,
+      VALUES ($1, $2, $3, $4, 0.0)`,
       [data.name, slug, data.image_url, data.address]
     );
 
-    // D. Hapus dari daftar antrean request
     await pool.query("DELETE FROM warung_requests WHERE id = $1", [id]);
 
     res.json({ message: "Warung berhasil di-ACC!" });
@@ -133,7 +123,6 @@ app.post("/admin/approve/:id", async (req, res) => {
   }
 });
 
-// --- 6. FITUR ADMIN: TOLAK (Hapus) ---
 app.delete("/admin/reject/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -144,7 +133,6 @@ app.delete("/admin/reject/:id", async (req, res) => {
   }
 });
 
-// --- 7. DATA UMUM ---
 app.get("/warungs", async (req, res) => {
   const { sort } = req.query;
   try {
@@ -204,11 +192,9 @@ app.post("/reviews", async (req, res) => {
   }
 });
 
-// 1. UPDATE: User Kirim Rekomendasi (Simpan menu dalam bentuk teks JSON)
 app.post("/request-warung", async (req, res) => {
   const { userId, name, address, imageUrl, description, menus } = req.body;
 
-  // Ubah array menu menjadi string JSON agar bisa masuk satu kolom
   const menusString = JSON.stringify(menus);
 
   try {
@@ -223,11 +209,9 @@ app.post("/request-warung", async (req, res) => {
   }
 });
 
-// 2. UPDATE: Admin Terima (Pindahkan Warung DAN Menunya)
 app.post("/admin/approve/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    // A. Ambil data request
     const requestData = await pool.query(
       "SELECT * FROM warung_requests WHERE id = $1",
       [id]
@@ -244,20 +228,17 @@ app.post("/admin/approve/:id", async (req, res) => {
       "-" +
       Date.now();
 
-    // B. Masukkan ke tabel WARUNGS Utama & AMBIL ID BARUNYA
     const newWarung = await pool.query(
       `INSERT INTO warungs (name, slug, image_url, address, rating_avg) 
-       VALUES ($1, $2, $3, $4, 0.0) RETURNING id`,
+      VALUES ($1, $2, $3, $4, 0.0) RETURNING id`,
       [data.name, slug, data.image_url, data.address]
     );
 
     const newWarungId = newWarung.rows[0].id;
 
-    // C. Buka bungkusan JSON Menu tadi, lalu masukkan ke tabel MENUS satu per satu
     if (data.menus_json) {
       const menuList = JSON.parse(data.menus_json);
       for (const item of menuList) {
-        // Kita kasih emoji default 🍲 kalau user gak isi emoji
         await pool.query(
           `INSERT INTO menus (warung_id, name, price, category, emoji) VALUES ($1, $2, $3, $4, $5)`,
           [newWarungId, item.name, item.price, "Makanan", "🍲"]
@@ -265,7 +246,6 @@ app.post("/admin/approve/:id", async (req, res) => {
       }
     }
 
-    // D. Hapus request
     await pool.query("DELETE FROM warung_requests WHERE id = $1", [id]);
 
     res.json({ message: "Warung dan Menunya berhasil tayang!" });
@@ -277,4 +257,42 @@ app.post("/admin/approve/:id", async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Server berjalan di http://localhost:${port}`);
+});
+
+
+
+app.put("/warungs/:id", async (req, res) => {
+  const { id } = req.params;
+
+  const {
+    name,
+    address,
+    rating_avg,
+    image_url,
+  } = req.body;
+
+  try {
+    const query = `
+      UPDATE warungs
+      SET
+        name = $1,
+        address = $2,
+        rating_avg = $3,
+        image_url = $4
+      WHERE id = $5
+      RETURNING *;
+    `;
+
+    const values = [name, address, rating_avg, image_url, id];
+
+    const result = await pool.query(query, values);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Warung tidak ditemukan" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
