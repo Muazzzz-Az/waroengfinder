@@ -3,12 +3,14 @@ const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
+const path = require("path");
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
+app.use("/images", express.static(path.join(__dirname, "public/images")));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -64,12 +66,14 @@ app.post("/register", async (req, res) => {
 });
 
 app.post("/request-warung", async (req, res) => {
-  const { userId, name, address, imageUrl, description } = req.body;
+  const { userId, name, address, imageUrl, description, menus } = req.body;
+  const menusString = JSON.stringify(menus);
+
   try {
     const newRequest = await pool.query(
-      `INSERT INTO warung_requests (user_id, name, address, image_url, description) 
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [userId, name, address, imageUrl, description]
+      `INSERT INTO warung_requests (user_id, name, address, image_url, description, menus_json) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [userId, name, address, imageUrl, description, menusString]
     );
     res.json(newRequest.rows[0]);
   } catch (err) {
@@ -83,127 +87,6 @@ app.get("/admin/requests", async (req, res) => {
       "SELECT * FROM warung_requests ORDER BY created_at DESC"
     );
     res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/admin/approve/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const requestData = await pool.query(
-      "SELECT * FROM warung_requests WHERE id = $1",
-      [id]
-    );
-    if (requestData.rows.length === 0)
-      return res.status(404).json({ error: "Data tidak ditemukan" });
-
-    const data = requestData.rows[0];
-
-    const slug =
-      data.name
-        .toLowerCase()
-        .replace(/ /g, "-")
-        .replace(/[^\w-]+/g, "") +
-      "-" +
-      Date.now();
-
-    await pool.query(
-      `INSERT INTO warungs (name, slug, image_url, address, rating_avg) 
-      VALUES ($1, $2, $3, $4, 0.0)`,
-      [data.name, slug, data.image_url, data.address]
-    );
-
-    await pool.query("DELETE FROM warung_requests WHERE id = $1", [id]);
-
-    res.json({ message: "Warung berhasil di-ACC!" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete("/admin/reject/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query("DELETE FROM warung_requests WHERE id = $1", [id]);
-    res.json({ message: "Ditolak" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/warungs", async (req, res) => {
-  const { sort } = req.query;
-  try {
-    let query = `SELECT w.*, (SELECT COUNT(*) FROM reviews r WHERE r.warung_id = w.id) as review_count FROM warungs w `;
-    if (sort === "terlaris") query += " ORDER BY rating_avg DESC";
-    else if (sort === "ulasan") query += " ORDER BY review_count DESC";
-    else if (sort === "terdekat") query += " ORDER BY name ASC";
-    else query += " ORDER BY id ASC";
-
-    const result = await pool.query(query);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/warungs/:slug", async (req, res) => {
-  const { slug } = req.params;
-  try {
-    const warung = await pool.query(
-      "SELECT * FROM warungs WHERE slug = $1 OR id::text = $1",
-      [slug]
-    );
-    if (warung.rows.length === 0)
-      return res.status(404).json({ error: "Warung tidak ditemukan" });
-    const menus = await pool.query("SELECT * FROM menus WHERE warung_id = $1", [
-      warung.rows[0].id,
-    ]);
-    res.json({ warung: warung.rows[0], menus: menus.rows });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/reviews/:warungId", async (req, res) => {
-  try {
-    const reviews = await pool.query(
-      `SELECT r.*, u.full_name FROM reviews r LEFT JOIN users u ON r.user_id = u.id WHERE r.warung_id = $1 ORDER BY r.created_at DESC`,
-      [req.params.warungId]
-    );
-    res.json(reviews.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/reviews", async (req, res) => {
-  const { userId, warungId, rating, comment } = req.body;
-  try {
-    const newReview = await pool.query(
-      "INSERT INTO reviews (user_id, warung_id, rating, comment) VALUES ($1, $2, $3, $4) RETURNING *",
-      [userId, warungId, rating, comment]
-    );
-    res.json(newReview.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/request-warung", async (req, res) => {
-  const { userId, name, address, imageUrl, description, menus } = req.body;
-
-  const menusString = JSON.stringify(menus);
-
-  try {
-    const newRequest = await pool.query(
-      `INSERT INTO warung_requests (user_id, name, address, image_url, description, menus_json) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [userId, name, address, imageUrl, description, menusString]
-    );
-    res.json(newRequest.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -255,44 +138,96 @@ app.post("/admin/approve/:id", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server berjalan di http://localhost:${port}`);
+app.delete("/admin/reject/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("DELETE FROM warung_requests WHERE id = $1", [id]);
+    res.json({ message: "Ditolak" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+app.get("/warungs", async (req, res) => {
+  const { sort } = req.query;
+  try {
+    let query = `SELECT w.*, (SELECT COUNT(*) FROM reviews r WHERE r.warung_id = w.id) as review_count FROM warungs w `;
+    if (sort === "terlaris") query += " ORDER BY rating_avg DESC";
+    else if (sort === "ulasan") query += " ORDER BY review_count DESC";
+    else if (sort === "terdekat") query += " ORDER BY name ASC";
+    else query += " ORDER BY id ASC";
 
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/warungs/:slug", async (req, res) => {
+  const { slug } = req.params;
+  try {
+    const warung = await pool.query(
+      "SELECT * FROM warungs WHERE slug = $1 OR id::text = $1",
+      [slug]
+    );
+    if (warung.rows.length === 0)
+      return res.status(404).json({ error: "Warung tidak ditemukan" });
+    const menus = await pool.query("SELECT * FROM menus WHERE warung_id = $1", [
+      warung.rows[0].id,
+    ]);
+    res.json({ warung: warung.rows[0], menus: menus.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.put("/warungs/:id", async (req, res) => {
   const { id } = req.params;
-
-  const {
-    name,
-    address,
-    rating_avg,
-    image_url,
-  } = req.body;
+  const { name, address, rating_avg, image_url } = req.body;
 
   try {
     const query = `
       UPDATE warungs
-      SET
-        name = $1,
-        address = $2,
-        rating_avg = $3,
-        image_url = $4
-      WHERE id = $5
-      RETURNING *;
+      SET name = $1, address = $2, rating_avg = $3, image_url = $4
+      WHERE id = $5 RETURNING *;
     `;
-
-    const values = [name, address, rating_avg, image_url, id];
-
-    const result = await pool.query(query, values);
+    const result = await pool.query(query, [name, address, rating_avg, image_url, id]);
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "Warung tidak ditemukan" });
     }
-
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get("/reviews/:warungId", async (req, res) => {
+  try {
+    const reviews = await pool.query(
+      `SELECT r.*, u.full_name FROM reviews r LEFT JOIN users u ON r.user_id = u.id WHERE r.warung_id = $1 ORDER BY r.created_at DESC`,
+      [req.params.warungId]
+    );
+    res.json(reviews.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/reviews", async (req, res) => {
+  const { userId, warungId, rating, comment } = req.body;
+  try {
+    const newReview = await pool.query(
+      "INSERT INTO reviews (user_id, warung_id, rating, comment) VALUES ($1, $2, $3, $4) RETURNING *",
+      [userId, warungId, rating, comment]
+    );
+    res.json(newReview.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server berjalan di port ${port}`);
 });
