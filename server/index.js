@@ -241,10 +241,9 @@ app.get("/api/landing/featured", async (req, res) => {
         m.id, 
         m.name, 
         m.price, 
-        -- m.image KITA HAPUS KARENA TIDAK ADA DI DATABASE
         w.name as warung_name, 
         w.address,
-        w.image_url as image, -- KITA GANTI PAKAI GAMBAR WARUNG SAJA BIAR CANTIK
+        w.image_url as image,
         COALESCE(AVG(r.rating), 0) as rating
       FROM menus m
       JOIN warungs w ON m.warung_id = w.id
